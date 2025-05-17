@@ -93,19 +93,19 @@ resources의 application.yml 또는 application.properties의 아래에 속성�
 
 ```yaml
 springdoc:
-	# Swagger UI 기본 경로
-	swagger-ui:
-	path: /swagger-ui.html
-	enabled: true
-	operationsSorter: method
-	tagsSorter: alpha # 태그를 알파벳 순으로 정렬
-	tryItOutEnabled: true
-	filter: true
+  # Swagger UI 기본 경로
+  swagger-ui:
+  path: /swagger-ui.html
+  enabled: true
+  operationsSorter: method
+  tagsSorter: alpha # 태그를 알파벳 순으로 정렬
+  tryItOutEnabled: true
+  filter: true
 
 # API 문서 경로
 api-docs:
-	path: /v3/api-docs
-	enabled: true
+  path: /v3/api-docs
+  enabled: true
 
 # 스캔할 패키지 설정
 packages-to-scan: com.example.fingerprint_backend
@@ -118,7 +118,7 @@ enable-spring-security: true
 
 # 캐시 비활성화 (개발 환경에서 유용)
 cache:
-	disabled: true
+  disabled: true
 ```
 
 자세한 속성 설정은 아래의 문서를 확인 해주세요.
