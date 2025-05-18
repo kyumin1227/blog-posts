@@ -49,9 +49,12 @@ http://localhost:[포트 번호]/swagger-ui/index.html
   <figcaption>그림 1. Swagger 접속 성공</figcaption>
 </figure>
 
-> [!TIP] Spring Security를 이용하고 있는 경우
-> 설정한 주소로의 접속을 허용해주어야 합니다.
-> `.requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()`
+<Alert severity="warning">
+  {" "}
+  Spring Security를 이용하고 있는 경우 설정한 주소로의 접속을 허용해주어야 합니다.
+  {"\n"}
+  `.requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()`
+</Alert>
 
 ## 기본 설정
 
