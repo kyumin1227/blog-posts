@@ -1,0 +1,190 @@
+---
+title: Spring Docを利用したAPIドキュメントの自動化　（2）
+date: 2025-10-11
+description: Spring Doc (Open Api)を利用して生成したAPIドキュメントを自動でデプロイする方法を紹介します。
+coverImage: https://github.com/kyumin1227/blog-posts/blob/main/images/spring-doc-2/Cover%20Image.png?raw=true
+visible: true
+tags:
+  - spring
+  - swagger
+  - spring doc
+  - ci
+  - github actions
+---
+
+# 概要
+
+前回の投稿では、SpringDoc を利用して JAVA コード上で Swagger ドキュメントを作成する方法を説明しました。
+
+> [https://www.kyumin.dev/ja/posts/spring-doc/spring-doc](https://www.kyumin.dev/ja/posts/spring-doc/spring-doc)
+
+この方法でもドキュメントを生成し参照することは可能ですが、**アプリケーションサーバーが実行中**である場合のみドキュメントを観覧できるという**制約**があります。
+したがって、最新のドキュメントを確認するためには、以下のような手間のかかる作業が必要でした。
+
+1. GitHub から最新のコードを取得します。
+2. サーバーとの接続のため、ローカルでデータベースを起動します。
+3. サーバー起動に必要な環境変数を設定します。
+4. アプリケーションサーバーを実行し、ドキュメントを確認します。
+
+単に最新の API ドキュメントを見たいだけなのに、上記のような作業が伴うため、Spring Doc で生成した Swagger ドキュメントの確認は非効率的であり、追加の労力を要します。
+
+一方、[Postman](https://www.postman.com/)の場合は API の変更箇所はコードとは別に手動で修正する必要があるが、ドキュメント化とデプロイが簡単であり、一度作成しておけばインターネット接続さえあればリンクだけでどこからでも最新のドキュメントを見れれるという利点があります。
+
+[Swagger](https://swagger.io/)にもインターネット上にデプロイを行う機能はありますが、Postman のようにコード修正時に開発者が直接 JSON ファイルを取得してインポートする作業が必要でした。
+そのため、より効率的な CI（継続的インテグレーション）環境を構築するために、本投稿では GitHub Actions を利用して自動デプロイを構築することにしました。
+
+# 実装方法
+
+## Swagger UI の準備
+
+Swagger のドキュメントを動的に生成し表示するためには、まずは下記のリンクから Swagger UI のソースコードをダウンロードします。
+
+> [https://github.com/swagger-api/swagger-ui](https://github.com/swagger-api/swagger-ui)
+
+この中にある `dist`フォルダ内のファイルをプロジェクトのフォルダに移動させます。
+（筆者の場合、プロジェクトルートに`docs`という独立したフォルダを作成しました。）
+
+その後 `swagger.json`ファイルを追加し、`swagger-initializer.js`ファイルの 6 行目にある`url`の部分を先生成した`./swagger.json`に変更します。
+（ここでは`./swagger.json`に変更しましたが、作成したファイル名と同じであれば問題ありません。この名前は GitHub Actions のワークフローで入力するファイル名と一致している必要があります。）
+
+<img
+  src="https://github.com/kyumin1227/blog-posts/blob/main/images/spring-doc-2/1.png?raw=true"
+  alt="swagger ui ファイル"
+  max-width="100%"
+  height="auto"
+/>
+
+```javascript
+window.onload = function () {
+  //<editor-fold desc="Changeable Configuration Block">
+
+  // the following lines will be replaced by docker/configurator, when it runs in a docker-container
+  window.ui = SwaggerUIBundle({
+    url: "./swagger.json",
+    dom_id: "#swagger-ui",
+    deepLinking: true,
+    presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+    plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+    layout: "StandaloneLayout",
+  });
+
+  //</editor-fold>
+};
+```
+
+設定後 `index.html` ファイルを開いて下記の仮面が表示されれば、Swagger UI の準備は完了です。
+
+<img
+  src="https://github.com/kyumin1227/blog-posts/blob/main/images/spring-doc-2/2.png?raw=true"
+  alt="Swagger ui 接続"
+  max-width="100%"
+  height="auto"
+/>
+
+## ワークプローの実装
+
+ワークプローの目標は Runner 内部でサーバーをビルドおよび実行した後、生成された Swagger ドキュメントの JSON を保存することです。
+この保存の際、メインブランチにコミットが追加されないよう、GitHub Actions を使用して`swagger-doc`というブランチを生成し、そこに保存します。
+
+まずは GitHub Actions を使用するために、プロジェクトルートに`.github/workflows`フォルダを生成してプロジェクトをビルドおよび実行するコードの後に、下記のコードを追加します。
+（サーバーのポート設定、上記で作成したフォルダ名とファイル名に応じて柔軟に修正してください。）
+
+```yaml
+プロジェクトに合わせてサーバーをビルドおよび実行
+
+...
+
+- name: Wait for server
+run: |
+  echo "Waiting for Spring Boot to start..."
+  timeout 60s bash -c 'until curl -f http://localhost:8080/actuator/health | grep -q UP; do sleep 3; done'
+
+- name: Download Swagger JSON
+run: |
+  mkdir -p docs
+  curl http://localhost:8080/v3/api-docs -o docs/swagger.json
+
+- name: Switch to swagger-docs branch
+run: |
+  git fetch origin
+  git checkout -B swagger-docs origin/swagger-docs || git checkout -b swagger-docs
+
+- name: Commit & Push docs
+run: |
+  git config --global user.name 'github-actions'
+  git config --global user.email 'actions@github.com'
+  git add docs
+  if git diff --cached --quiet; then
+	echo "No changes to commit"
+	exit 0
+  fi
+  git commit -m "Update Swagger UI"
+  git push --force origin swagger-docs
+
+```
+
+リポジトリでワークプローを実行した後、ブランチが生成され、上記で作成した`docs/swagger.json`ファイルに内容が正しく追加されているか確認してください。
+
+## デプロイ
+
+Swagger UI は低敵ページなのでデプロイは`GitHub Pages`を利用します。
+
+リポジトリの Settings -> Pages に移動し、上記で生成したブランチとフォルダを選択後、 Save をクリックします。
+
+<img
+  src="https://github.com/kyumin1227/blog-posts/blob/main/images/spring-doc-2/3.png?raw=true"
+  alt="pages デプロイ"
+  max-width="100%"
+  height="auto"
+/>
+
+最大 10 分ほど待つと、下記のようにページデプロイが完了します。
+
+<img
+  src="https://github.com/kyumin1227/blog-posts/blob/main/images/spring-doc-2/4.png?raw=true"
+  alt="pages デプロイ完了"
+  max-width="100%"
+  height="auto"
+/>
+
+ページに接続して確認すると、作成した API ドキュメントがデプロイされていることが確認できます。
+
+<img
+  src="https://github.com/kyumin1227/blog-posts/blob/main/images/spring-doc-2/5.png?raw=true"
+  alt="Swagger ドキュメント"
+  max-width="100%"
+  height="auto"
+/>
+
+## バージョン管理
+
+もし特定バージョンのドキュメントを保存する必要がある場合は、`swagger.json`とは別の名前で JSON ファイルを保存した後、`swagger-initializer.js`の`url`を下記のように変更します。
+（この投稿では`swagger1.json`という名前のファイルを生成しました。）
+
+```javascript
+...
+
+urls: [
+    {url: "./swagger.json", name: "LATEST API"},
+  {url: "./swagger1.json", name: "API v1"}  // 追加したファイルのパスを記述
+],
+
+...
+```
+
+デプロイされたドキュメントは右上で選択可能です。
+
+<img
+  src="https://github.com/kyumin1227/blog-posts/blob/main/images/spring-doc-2/6.png?raw=true"
+  alt="Swagger バージョン選択"
+  max-width="100%"
+  height="auto"
+/>
+
+---
+
+# まとめ
+
+本投稿を通して、Spring Boot 環境で生成された Swagger ドキュメント（JSON）を GitHub Actions ワークプローを利用して抽出し、それを GitHub Pages を通してユーザーに静的ドキュメントの形でデプロイする CI 環境を構築しました。
+
+この仕組みを使用すれば、開発者は手動でサーバーを起動す必要なく、GitHub のコードと同期した最新の API ドキュメントを、どこからでもリンクを通じて確認できるようになります。
